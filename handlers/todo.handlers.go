@@ -87,7 +87,7 @@ func (th *TaskHandler) todoListHandler(c echo.Context) error {
 		isError,
 		getFlashmessages(c, "error"),
 		getFlashmessages(c, "success"),
-		todo_views.TodoList(titlePage, todos),
+		todo_views.Message(titlePage, todos),
 	))
 }
 

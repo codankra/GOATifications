@@ -1,0 +1,219 @@
+package handlers
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+
+	"github.com/emarifer/go-echo-templ-htmx/services"
+	_ "github.com/emarifer/go-echo-templ-htmx/views/todo_views"
+	"github.com/labstack/echo-contrib/session"
+	"github.com/labstack/echo/v4"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+)
+
+/********** Handlers for Message Views **********/
+
+type MessageService interface {
+	CreateMessage(t services.Message) (services.Message, error)
+	GetAllMessages(createdBy int) ([]services.Message, error)
+	GetMessageById(t services.Message) (services.Message, error)
+	UpdateMessage(t services.Message) (services.Message, error)
+	DeleteMessage(t services.Message) error
+}
+
+func NewMessageHandler(ms MessageService) *MessageHandler {
+
+	return &MessageHandler{
+		MessageServices: ms,
+	}
+}
+
+type MessageHandler struct {
+	MessageServices MessageService
+}
+
+func (th *MessageHandler) createMessageHandler(c echo.Context) error {
+	isError = false
+
+	if c.Request().Method == "POST" {
+		message := services.Message{
+			CreatedBy: c.Get(user_id_key).(int),
+			Topic:     strings.Trim(c.FormValue("topic"), " "),
+			// Message: c.FormValue("message"),
+			// Date: strings.Trim(c.FormValue("date"), " "),
+			// Time: c.FormValue("time"),
+		}
+
+		_, err := th.MessageServices.CreateMessage(message)
+		if err != nil {
+			return err
+		}
+
+		setFlashmessages(c, "success", "Message created successfully!!")
+
+		return c.Redirect(http.StatusSeeOther, "/message/list")
+	}
+
+	return renderView(c, message_views.MessageIndex(
+		"| Create Message",
+		c.Get(username_key).(string),
+		fromProtected,
+		isError,
+		getFlashmessages(c, "error"),
+		getFlashmessages(c, "success"),
+		message_views.CreateMessage(),
+	))
+}
+
+func (th *MessageHandler) messageHandler(c echo.Context) error {
+	isError = false
+	userId := c.Get(user_id_key).(int)
+
+	messages, err := th.MessageServices.GetAllMessages(userId)
+	if err != nil {
+		return err
+	}
+
+	titlePage := fmt.Sprintf(
+		"| %s's Notification Group",
+		cases.Title(language.English).String(c.Get(username_key).(string)),
+	)
+
+	return renderView(c, message_views.MessageIndex(
+		titlePage,
+		c.Get(username_key).(string),
+		fromProtected,
+		isError,
+		getFlashmessages(c, "error"),
+		getFlashmessages(c, "success"),
+		message_views.Message(titlePage, messages),
+	))
+}
+
+func (th *MessageHandler) updateMessageHandler(c echo.Context) error {
+	isError = false
+
+	idParams, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		return err
+	}
+
+	t := services.Message{
+		ID:        idParams,
+		CreatedBy: c.Get(user_id_key).(int),
+	}
+
+	message, err := th.MessageServices.GetMessageById(t)
+	if err != nil {
+		if strings.Contains(err.Error(), "no rows in result set") {
+
+			return echo.NewHTTPError(
+				echo.ErrNotFound.Code,
+				fmt.Sprintf(
+					"something went wrong: %s",
+					err,
+				))
+		}
+
+		return echo.NewHTTPError(
+			echo.ErrInternalServerError.Code,
+			fmt.Sprintf(
+				"something went wrong: %s",
+				err,
+			))
+	}
+
+	if c.Request().Method == "POST" {
+		// var status bool
+		// if c.FormValue("status") == "on" {
+		// 	status = true
+		// } else {
+		// 	status = false
+		// }
+
+		message := services.Message{
+			// Title:       strings.Trim(c.FormValue("title"), " "),
+			// Description: strings.Trim(c.FormValue("description"), " "),
+			// Status:      c.FormValue("status").(bool),
+			CreatedBy: c.Get(user_id_key).(int),
+			ID:        idParams,
+		}
+
+		_, err := th.MessageServices.UpdateMessage(message)
+		if err != nil {
+			return err
+		}
+
+		setFlashmessages(c, "success", "Message successfully updated!!")
+
+		return c.Redirect(http.StatusSeeOther, "/message/list")
+	}
+
+	return renderView(c, message_views.MessageIndex(
+		fmt.Sprintf("| Edit Message #%d", message.ID),
+		c.Get(username_key).(string),
+		fromProtected,
+		isError,
+		getFlashmessages(c, "error"),
+		getFlashmessages(c, "success"), // ↓ getting time zone from context ↓
+		message_views.UpdateMessage(message, c.Get(tzone_key).(string)),
+	))
+}
+
+func (th *MessageHandler) deleteMessageHandler(c echo.Context) error {
+	idParams, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	t := services.Message{
+		CreatedBy: c.Get(user_id_key).(int),
+		ID:        idParams,
+	}
+
+	err = th.MessageServices.DeleteMessage(t)
+	if err != nil {
+		if strings.Contains(err.Error(), "an affected row was expected") {
+
+			return echo.NewHTTPError(
+				echo.ErrNotFound.Code,
+				fmt.Sprintf(
+					"something went wrong: %s",
+					err,
+				))
+		}
+
+		return echo.NewHTTPError(
+			echo.ErrInternalServerError.Code,
+			fmt.Sprintf(
+				"something went wrong: %s",
+				err,
+			))
+	}
+
+	setFlashmessages(c, "success", "Message successfully deleted!!")
+
+	return c.Redirect(http.StatusSeeOther, "/message/list")
+}
+
+func (th *MessageHandler) logoutHandler(c echo.Context) error {
+	sess, _ := session.Get(auth_sessions_key, c)
+	// Revoke users authentication
+	sess.Values = map[interface{}]interface{}{
+		auth_key:     false,
+		user_id_key:  "",
+		username_key: "",
+		tzone_key:    "",
+	}
+	sess.Save(c.Request(), c.Response())
+
+	setFlashmessages(c, "success", "You have successfully logged out!!")
+
+	fromProtected = false
+
+	return c.Redirect(http.StatusSeeOther, "/login")
+}

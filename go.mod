@@ -3,7 +3,7 @@ module github.com/emarifer/go-echo-templ-htmx
 go 1.21.0
 
 require (
-	github.com/a-h/templ v0.2.501
+	github.com/a-h/templ v0.2.663
 	github.com/gorilla/sessions v1.2.2
 	github.com/labstack/echo-contrib v0.15.0
 	github.com/labstack/echo/v4 v4.11.4
